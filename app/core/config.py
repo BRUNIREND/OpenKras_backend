@@ -4,6 +4,9 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     database_url: str
+    postgres_user: str
+    postgres_password: str
+    postgres_db: str
     project_name: str = "Аудио-гид Красноярского музея"
     api_v1_str: str = "/api/v1"
 
