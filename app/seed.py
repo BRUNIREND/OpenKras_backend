@@ -1,3 +1,7 @@
+import asyncio
+
+from sqlalchemy import select
+
 from app.database.session import AsyncSessionLocal, engine
 from app.models.excursion import Base, Excursion
 from app.models.point import Point
