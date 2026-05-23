@@ -26,7 +26,7 @@ async def seed_data():
             # 3. Создаем точки Красноярска
             p1 = Point(
                 title="Краеведческий музей",
-                description="Здание в египетском стиле на берегу Енисея.",
+                text="Здание в египетском стиле на берегу Енисея.",
                 latitude=56.0091,
                 longitude=92.8711,
                 audio_url="/static/audio/museum.mp3"
@@ -34,7 +34,7 @@ async def seed_data():
 
             p2 = Point(
                 title="Речной вокзал",
-                description="Памятник архитектуры сталинского ампира.",
+                text="Памятник архитектуры сталинского ампира.",
                 latitude=56.0085,
                 longitude=92.8765,
                 audio_url="/static/audio/river_station.mp3"

@@ -1,5 +1,23 @@
-# .gitignore (добавь эти строки)
-.venv/
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environmental variables (СЕКРЕТЫ)
 .env
+.flaskenv
+
+# SQLAlchemy / Databases
+*.db
+*.sqlite
+
+docker-volumes/
+.docker/
+Thumbs.db
+desktop.ini

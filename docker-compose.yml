@@ -1,9 +1,15 @@
-# docker-compose.yml  (создай в корне проекта)
+# docker-compose.yml
 services:
   db:
     image: postgres:16
     container_name: museum_db
     restart: always
+    environment:
+      - MAIL_USERNAME=${MAIL_USERNAME}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+      - MAIL_SERVER=${MAIL_SERVER}
+      - MAIL_PORT=${MAIL_PORT}
+      - MAIL_FROM=${MAIL_FROM}
     env_file:
       - .env
     ports:

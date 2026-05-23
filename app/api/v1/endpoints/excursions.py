@@ -1,45 +1,53 @@
 # app/api/v1/excursions.py
 from http.client import HTTPException
 
-from alembic.util import status
 from fastapi import APIRouter, Depends
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from watchfiles import awatch
+
+from app.core.deps import get_excursion_service
 from app.database.session import get_db
-from app.models.excursion import Excursion  # SQLAlchemy модель
-from app.schemas.excursion import ExcursionRead
+from app.models.excursion import Excursion
+from app.repositories.excursion import ExcursionRepository
+from app.schemas.excursion import ExcursionRead, ExcursionCreate
 from typing import List
-from sqlalchemy.orm import selectinload # Импортируем загрузчик
+from sqlalchemy.orm import selectinload
+
+from app.services.ExcursionService import ExcursionService
 
 router = APIRouter(prefix="/excursions", tags=["Excursions"])
 
 @router.get("/", response_model=List[ExcursionRead])
-async def get_excursions(
-        db: AsyncSession = Depends(get_db),
+async def get_list_excursions(
+        excursion_service: ExcursionService = Depends(get_excursion_service),
         skip: int = 0,
         limit: int = 100
-):
-    # 1. Формируем запрос
-    query = select(Excursion).options(selectinload(Excursion.points)).offset(skip).limit(limit)
-    # 2. Выполняем асинхронно
-    result = await db.execute(query)
+) -> List[Excursion]:
+    return await excursion_service.get_all_published(skip, limit)
 
-    # 3. Извлекаем объекты
-    excursions = result.scalars().all()
 
-    return excursions
+
 
 
 @router.get("/{excursion_id}", response_model=ExcursionRead)
-async def get_excursion(excursion_id: int, db: AsyncSession = Depends(get_db)):
-    query = (
-        select(Excursion)
-        .options(selectinload(Excursion.points))
-        .where(Excursion.id == excursion_id)
-    )
-    result = await db.execute(query)
-    excursion = result.scalar_one_or_none()
+async def get_excursion(
+        excursion_id: int,
+        excursion_service: ExcursionService = Depends(get_excursion_service)
+) -> Excursion:
+    """
+    Возвращает полную информацию о конкретной экскурсии по id
+    :param excursion_id:
+    :param excursion_service:
+    :return: Excursion
+    """
+    return await excursion_service.get_full_details(excursion_id = excursion_id)
 
-    if not excursion:
-        raise HTTPException("404 not found blat")
-    return excursion
+@router.post("/create", response_model=ExcursionCreate)
+async def create_excursion(
+        data: ExcursionCreate,
+        excursion_service: ExcursionService = Depends(get_excursion_service)
+):
+    return await excursion_service.create_excursion(data)
+
+
