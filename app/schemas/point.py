@@ -1,3 +1,5 @@
+from typing import Optional, List
+
 from pydantic import ConfigDict, BaseModel, Field, model_validator
 
 from app.schemas.media import MediaRead
@@ -6,37 +8,41 @@ from app.schemas.media import MediaRead
 class PointBase(BaseModel):
     id: int
 
-
-
-class PointCreate(PointBase):
-    excursion_id: int
-
 class PointUpdate(PointBase):
     id: int
 
+class PointMediaAttachment(BaseModel):
+    media_id: int
+    position: int = 1
+
+# Обновляем схему создания контента
+class PointContentCreate(BaseModel):
+    lang: str = Field(default="ru", max_length=5)
+    name: str
+    description: Optional[str] = None
+    address: Optional[str] = None
+
+    media_ids: List[int] = Field(default=[])
+
+class PointCreate(BaseModel):
+    excursion_id: int
+    latitude: float
+    longitude: float
+    radius_meters: int = 20
+    position: int = 0
+    contents: List[PointContentCreate] = Field(default=[])
 
 class PointContentRead(BaseModel):
-    name: str
-    description: str | None
+    id: int
+    point_id: int
     lang: str
-    address: str | None = None
-
-    # Разделяем медиа в ответе API
-    media: list[MediaRead] = []
-    # audio: list[MediaRead] = []
-    # images: list[MediaRead]
-    # audio: list[MediaRead]
+    name: str
+    description: Optional[str]
+    address: Optional[str]
+    media: List[MediaRead] = []
 
     class Config:
         from_attributes = True
-
-    # @property
-    # def images(self):
-    #     return [m for m in self.media if m.media_type == "IMAGE"]
-    #
-    # @property
-    # def audio(self):
-    #     return [m for m in self.media if m.media_type == "AUDIO"]
 
 class PointRead(PointBase):
     id: int

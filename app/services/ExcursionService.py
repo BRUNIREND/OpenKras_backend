@@ -3,9 +3,10 @@ from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
-from app.models import Excursion
+from app.models import Excursion, Point
+from app.models.excursion import ExcursionStatus
 from app.repositories.category import category_repo
-from app.repositories.excursion import ExcursionRepository, excursion_repo
+from app.repositories.excursion import  excursion_repo
 from fastapi import HTTPException
 
 from app.repositories.point import point_repo
@@ -40,18 +41,36 @@ class ExcursionService:
         # 3. Сохраняем через репозиторий
         return await excursion_repo.create(self.db, obj_in=excursion_in)
 
-    async def get_all_published(self, skip: int = 0, limit: int = 20) -> List[Excursion]:
+    async def get_all_published(self, user_id: int,skip: int = 0, limit: int = 20) -> List[Excursion]:
         """
         Получение списка только опубликованных экскурсий для мобильного приложения.
         """
-        return await excursion_repo.get_all_with_points(self.db, skip=skip, limit=limit)
+        return await excursion_repo.get_published_short(self.db, current_user_id=user_id, skip=skip, limit=limit)
 
-    async def get_full_details(self, excursion_id: int) -> Excursion:
+    async def get_full_details(self, excursion_id: int, user_id: int) -> Excursion:
         """
-        Получение полной информации: Экскурсия + Точки + Медиа.
+        Получение полной информации: Экскурсия + Точки + Медиа + Статус избранного.
         Это основной метод для экрана подробностей в приложении.
         """
-        excursion = await excursion_repo.get_with_points(self.db, id=excursion_id)
+        # 1. Используем метод с полной подгрузкой вложенных связей
+        excursion = await excursion_repo.get_with_points_one(self.db, excursion_id)
+        if not excursion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Экскурсия не найдена"
+            )
+
+        # 2. Проверяем, добавил ли этот пользователь её в избранное
+        excursion.is_favorite = await excursion_repo.is_favorite(
+            db=self.db,
+            user_id=user_id,
+            excursion_id=excursion_id
+        )
+
+        return excursion
+
+    async def get_all_detail_excursion_by_id(self, excursion_id: int ):
+        excursion = await excursion_repo.get_with_points_one(self.db, excursion_id)
         if not excursion:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -59,27 +78,34 @@ class ExcursionService:
             )
         return excursion
 
-    async def add_new(self, data: ExcursionCreate) -> Excursion:
+    async def add_point_to_excursion(self, point_data: PointCreate) -> Point:
         """
-        Добавление новой экскурсии
+        Бизнес-логика привязки новой точки с мультиязычным контентом
+        и медиа-файлами к экскурсии.
         """
-        existing_excursion = await excursion_repo.get_by_title(self.db ,data.title)
-        if existing_excursion:
-            raise HTTPException(400, "Такая экскурсия уже есть")
-
-        return await excursion_repo.create(self.db, obj_in=data)
-
-    async def add_point_to_excursion(self, point_in: PointCreate):
-        # Здесь мы просто сохраняем пути, которые прислал фронтенд
-        # (Фронтенд сначала загружает файл на другой эндпоинт, получает ссылку и шлет её сюда)
-
-        excursion = await excursion_repo.get(self.db, id=point_in.excursion_id)
-        if not excursion:
+        excursion_exists = await excursion_repo.exists(self.db, id=point_data.excursion_id)
+        if not excursion_exists:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Нельзя добавить точку к несуществующей экскурсии"
+                detail=f"Экскурсия с ID {point_data.excursion_id} не найдена."
             )
-        return await point_repo.create(self.db, obj_in=point_in)
+
+        try:
+            new_point = await point_repo.create_with_contents_and_media(
+                db=self.db,
+                point_schema=point_data
+            )
+            return new_point
+
+        except Exception as e:
+
+            await self.db.rollback()
+
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Не удалось сохранить точку маршрута и связать её с медиа-файлами."
+            )
 
     async def delete_excursion(self, excursion_id: int):
         """
@@ -91,3 +117,81 @@ class ExcursionService:
             raise HTTPException(status_code=404, detail="Экскурсия не найдена")
 
         return await excursion_repo.remove(self.db, id=excursion_id)
+
+    async def publish_excursion(self, excursion_id: int) -> Excursion:
+        """
+        Перевод экскурсии из статуса DRAFT в PUBLISHED для публикации в приложении.
+        """
+        excursion = await excursion_repo.get(self.db, id=excursion_id)
+        if not excursion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Экскурсия не найдена"
+            )
+
+        # Меняем статус
+        excursion.status = ExcursionStatus.PUBLISHED
+
+        await self.db.commit()
+        await self.db.refresh(excursion)
+        return excursion
+
+    async def get_all_for_admin(self, skip: int = 0, limit: int = 20) -> List[Excursion]:
+        """
+
+        Получение ВСЕХ экскурсий (включая DRAFT) для админ-панели.
+        """
+        # Если в репозитории есть базовый метод get_multi, используем его,
+        # либо пишем кастомный метод в репозитории без фильтрации по статусу
+
+        return await excursion_repo.get_all_raw(self.db, skip=skip, limit=limit)
+
+    async def update_excursion(self, excursion_id: int, excursion_in: ExcursionCreate) -> Excursion:
+        # Вызываем метод обновления у репозитория
+        updated_excursion = await excursion_repo.update(
+            self.db,
+            excursion_id=excursion_id,
+            obj_in=excursion_in
+        )
+
+        # Если репозиторий вернул None, значит такой записи нет в базе
+        if not updated_excursion:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Экскурсия с ID {excursion_id} не найдена"
+            )
+
+        return updated_excursion
+
+    async def add_to_favorites(self, user_id: int, excursion_id: int) -> bool:
+        """Бизнес-логика добавления в избранное"""
+        # 1. Проверяем, существует ли вообще такая экскурсия, прежде чем плодить связи
+        excursion_exists = await excursion_repo.get(self.db, id=excursion_id)
+        if not excursion_exists:
+            return False
+
+        # 2. Перенаправляем запрос в репозиторий для выполнения записи в БД
+        return await excursion_repo.add_to_favorites(
+            db=self.db,
+            user_id=user_id,
+            excursion_id=excursion_id
+        )
+
+    async def remove_from_favorites(self, user_id: int, excursion_id: int) -> bool:
+        """Бизнес-логика удаления из избранного"""
+        # Репозиторий просто удалит запись из таблицы user_favorite_excursions
+        return await excursion_repo.remove_from_favorites(
+            db=self.db,
+            user_id=user_id,
+            excursion_id=excursion_id
+        )
+
+    async def get_user_favorites(self, user_id) -> List[Excursion]:
+        """
+            Получить список облегченных экскурсий,
+            добавленных пользователем в избранное.
+        """
+        return await excursion_repo.get_user_favorites(
+            db=self.db,
+            user_id=user_id
+        )

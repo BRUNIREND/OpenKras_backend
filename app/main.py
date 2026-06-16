@@ -3,16 +3,19 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.models import APIKeyIn
+from fastapi.security import APIKeyHeader
 from starlette.staticfiles import StaticFiles
-from unicodedata import category
+from fastapi.openapi.utils import get_openapi
 
-from app.api.v1.endpoints.auth import auth_router
+from app.core.redis import redis_pool
 from app.database.session import engine
-from app.database.base_class import Base          # ← ключевой импорт
-from app.api.v1.endpoints import excursions, points, users, auth, category, otp
-from app.models.point import Point
+from app.database.base_class import Base
+from app.api.v1.endpoints import excursions, points, users, auth, category, otp, admin
+from app.services.FileService import FileService
 
 # print(f"DEBUG: Point columns: {Point.__table__.columns.keys()}")
+
 prefix = "/api/v1"
 app = FastAPI(
     title="Аудио-гид Красноярского музея",
@@ -28,15 +31,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# origins = [
+#     "http://localhost:5173",
+#     "http://127.0.0.1:5173",
+# ]
+#
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=origins,
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
 
 
 
-# Создаем папки, если их нет
-os.makedirs("static/images", exist_ok=True)
-os.makedirs("static/audio", exist_ok=True)
 
-# Монтируем папку static по адресу /static
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
 async def init_db():
     async with engine.begin() as conn:
@@ -47,6 +57,17 @@ async def init_db():
 @app.on_event("startup")
 async def startup_event():
     await init_db()
+    try:
+        # Вызываем асинхронный метод инициализации бакета
+        await FileService.init_bucket()
+    except Exception as e:
+        print(f"❌ Не удалось инициализировать права бакета MinIO: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # При остановке сервера красиво закрываем пул Redis
+    print("💤 Закрытие соединений Redis...")
+    await redis_pool.disconnect()
 
 app.include_router(excursions.router, prefix=prefix)
 app.include_router(points.router, prefix=prefix)
@@ -54,3 +75,4 @@ app.include_router(users.user_router, prefix=prefix)
 app.include_router(auth.auth_router, prefix=prefix)
 app.include_router(category.router, prefix=prefix)
 app.include_router(otp.router, prefix=prefix)
+app.include_router(admin.admin_router, prefix=prefix)

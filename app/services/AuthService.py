@@ -1,15 +1,16 @@
 import os
 import random
-from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from fastapi import HTTPException, status
+from redis import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 
+from app.core.config import settings
 from app.core.otp_message import create_otp_html
 from app.core.security import verify_password, create_access_token
-from app.repositories.auth_repository import auth_repo
+from app.repositories.otp_repository import OTPRepository
 from app.repositories.user import user_repo
 from app.schemas.auth import RegisterVerify, LoginRequest
 from app.schemas.user import UserCreate
@@ -31,9 +32,10 @@ mail_conf = ConnectionConfig(
 
 
 class AuthService:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, redis_client: Redis):
         self.db = db
         self.user_service = UserService(db)
+        self.otp_repository = OTPRepository(redis_client)
 
     async def authenticate_user(self, email: str, password: str):
         user = await user_repo.get_by_email(self.db, email=email)
@@ -55,7 +57,6 @@ class AuthService:
         }
 
     async def request_otp(self, email: str):
-        # 1. Проверка на существование юзера
         user = await user_repo.get_by_email(self.db, email)
         if user:
             raise HTTPException(
@@ -63,13 +64,17 @@ class AuthService:
                 detail="Email уже занят"
             )
 
-        expiratAt = datetime.utcnow() + timedelta(minutes=5)
         otp_code = f"{random.randint(100000, 999999)}"
-        await auth_repo.save_otp(self.db, email, otp_code, expiratAt)
 
-        # 3. Отправка письма
+        await self.otp_repository.save_otp(
+            email=email,
+            code=otp_code,
+            expire_seconds=settings.OTP_EXPIRE_SECONDS
+        )
+
+        # 4. Формируем и отправляем письмо
         message = MessageSchema(
-            subject="Открой Красноярск - Код подтверждения",
+            subject=f"{settings.project_name} - Код подтверждения",
             recipients=[email],
             body=create_otp_html(otp_code),
             subtype="html"
@@ -79,33 +84,28 @@ class AuthService:
             fm = FastMail(mail_conf)
             await fm.send_message(message)
         except Exception as e:
-            print(f"Ошибка почты: {e}")
+            # Если почта сломалась — подчищаем за собой созданный ключ в Redis
+            await self.otp_repository.delete_otp(email)
+            print(f"❌ Ошибка отправки почты: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Не удалось отправить письмо"
+                detail="Не удалось отправить письмо с кодом подтверждения"
             )
 
-        return {"message": "OTP sent successfully"}
+        return {"message": "OTP sent successfully", "debug_code": otp_code}
 
     async def verify_and_register(self, data: RegisterVerify):
-        # 1. Получаем код из БД
-        db_otp = await auth_repo.get_otp_by_email(self.db, data.email)
+        # 1. Запрашиваем код напрямую из оперативной памяти Redis
+        saved_code = await self.otp_repository.get_otp(data.email)
 
-        if not db_otp or db_otp.code != data.code:
+        # 2. Если кода в Redis нет или он не совпадает
+        if not saved_code or saved_code != data.code:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный код"
+                detail="Неверный код или срок его действия истек"
             )
 
-        # 2. Проверка времени жизни (utcnow)
-        if datetime.utcnow() > db_otp.expires_at:
-            await auth_repo.delete_otp(self.db, data.email)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Код просрочен"
-            )
-
-        # 3. Создаем пользователя через UserService
+        # 3. Код верный. Регистрируем нового пользователя в Postgres через UserService
         user_in = UserCreate(
             name=data.name,
             email=data.email,
@@ -113,10 +113,10 @@ class AuthService:
         )
         new_user = await self.user_service.create_user(user_in)
 
-        # 4. Удаляем использованный код
-        await auth_repo.delete_otp(self.db, data.email)
+        # 4. Сразу стираем код из Redis, так как он одноразовый
+        await self.otp_repository.delete_otp(data.email)
 
-        # 5. Генерируем токен для мгновенного входа после регистрации
+        # 5. Генерируем JWT-токен для мгновенного логина
         token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
         return {
             "access_token": token,

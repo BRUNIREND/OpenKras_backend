@@ -78,3 +78,8 @@ class UserService:
             await self.db.commit()
             await self.db.refresh(user)
         return user
+
+    async def get_user_favorites(self, user_id):
+        pass
+
+

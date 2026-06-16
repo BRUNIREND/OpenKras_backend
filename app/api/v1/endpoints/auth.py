@@ -22,7 +22,7 @@ async def request_otp(
 ):
     return await auth_service.request_otp(data.email)
 
-# Получаем и сравнием код из прошлого этапа регистрации, создаем пользователя
+# Получаем и сравниваем код из прошлого этапа регистрации, создаем пользователя
 @auth_router.post(
     "/register/verify",
     status_code=status.HTTP_200_OK,

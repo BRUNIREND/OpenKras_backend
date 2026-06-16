@@ -9,7 +9,11 @@ from sqlalchemy.orm import selectinload # Импортируем загрузч�
 
 router = APIRouter(prefix="/points", tags=["Points"])
 
-@router.get("/", response_model=List[PointRead])
+@router.get("/",
+            response_model=List[PointRead],
+            summary="Запрос на получение всех точек, существующих для прикрепленных экскурсий",
+            description="Принимает ограничения на выдачу",
+            )
 async def get_points(
         db: AsyncSession = Depends(get_db),
         skip: int = 0,
