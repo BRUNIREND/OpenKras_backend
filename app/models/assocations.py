@@ -16,3 +16,10 @@ user_favorite_excursions = Table(
     Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("excursion_id", ForeignKey("excursions.id", ondelete="CASCADE"), primary_key=True),
 )
+
+user_completed_excursions = Table(
+    "user_completed_excursions",
+Base.metadata,
+    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("excursion_id", ForeignKey("excursions.id", ondelete="CASCADE"), primary_key=True),
+)

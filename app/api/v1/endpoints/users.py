@@ -1,21 +1,15 @@
-from fastapi.security import OAuth2PasswordRequestForm
 from fastapi import APIRouter, Depends, HTTPException, status, Path
-from mako.testing.helpers import result_lines
-from sqlalchemy.future import select
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_excursion_service
-from app.core.security import get_password_hash, verify_password, create_access_token
 from app.database.session import get_db
 from app.models.user import User
-from app.schemas.excursion import ExcursionRead, ExcursionShortRead
-from app.schemas.token import Token
-from app.schemas.user import UserRead, UserCreate, FavoriteUpdate, UserResponse
+from app.schemas.excursion import  ExcursionShortRead
+from app.schemas.user import  UserResponse
 from typing import List
-from sqlalchemy.orm import selectinload # Импортируем загрузчик
 
 from app.services.ExcursionService import ExcursionService
-from app.services.UserService import UserService
 
 user_router = APIRouter(prefix="/users", tags=["User"])
 
@@ -99,5 +93,6 @@ async def get_favorite_excursions(
 async def read_user_me(
     current_user: User = Depends(get_current_user)
 ):
-
     return current_user
+
+

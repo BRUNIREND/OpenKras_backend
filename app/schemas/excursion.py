@@ -21,6 +21,8 @@ class ExcursionRead(ExcursionBase):
     images: list[MediaRead]
     category_id: int
     points: list[PointRead]
+    distance: Optional[float]
+    duration: Optional[int]
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -31,8 +33,9 @@ class ExcursionShortRead(BaseModel):
     category_id: Optional[int] = None
     is_favorite: bool = False
     status: ExcursionStatus = ExcursionStatus.DRAFT
-
-
+    distance: Optional[float] = None
+    duration: Optional[int] = None
+    is_completed: bool = False
     images: list[MediaRead]
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,13 +55,16 @@ class ExcursionResponse(BaseModel):
     category_id: Optional[int] = None
     title: str
     description: Optional[str] = None
+    distance: Optional[float] = None
+    duration: Optional[int] = None
 
 class ExcursionCreate(BaseModel):
     category_id: Optional[int] = None
     title: str
     description: Optional[str] = None
 
-class ExcursionUpdate(ExcursionBase):
-    id: int
-    points: list[PointCreate] = []
+class ExcursionUpdate(ExcursionResponse):
+    # id: int
+    # points: list[PointCreate] = []
     model_config = ConfigDict(from_attributes=True)
+

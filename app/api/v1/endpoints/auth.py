@@ -33,6 +33,7 @@ async def verify_otp(
         data: RegisterVerify,
         auth_service: AuthService = Depends(get_auth_service)
 ):
+
     return await auth_service.verify_and_register(data)
 
 # Дефолтный вход

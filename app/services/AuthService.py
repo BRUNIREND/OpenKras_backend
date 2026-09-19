@@ -97,29 +97,28 @@ class AuthService:
     async def verify_and_register(self, data: RegisterVerify):
         # 1. Запрашиваем код напрямую из оперативной памяти Redis
         saved_code = await self.otp_repository.get_otp(data.email)
-
         # 2. Если кода в Redis нет или он не совпадает
-        if not saved_code or saved_code != data.code:
-            raise HTTPException(
+        if not saved_code or int(saved_code) != int(data.code):
+            return HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Неверный код или срок его действия истек"
+                detail=f"Неверный код или срок его {saved_code},{data.code}"
             )
+        else:
+            # 3. Код верный. Регистрируем нового пользователя в Postgres через UserService
+            user_in = UserCreate(
+                name=data.name,
+                email=data.email,
+                password=data.password,
+            )
+            new_user = await self.user_service.create_user(user_in)
 
-        # 3. Код верный. Регистрируем нового пользователя в Postgres через UserService
-        user_in = UserCreate(
-            name=data.name,
-            email=data.email,
-            password=data.password,
-        )
-        new_user = await self.user_service.create_user(user_in)
+            # 4. Сразу стираем код из Redis, так как он одноразовый
+            await self.otp_repository.delete_otp(data.email)
 
-        # 4. Сразу стираем код из Redis, так как он одноразовый
-        await self.otp_repository.delete_otp(data.email)
-
-        # 5. Генерируем JWT-токен для мгновенного логина
-        token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "user_id": new_user.id
-        }
+            # 5. Генерируем JWT-токен для мгновенного логина
+            token = create_access_token({"sub": str(new_user.id), "role": new_user.role})
+            return {
+                "access_token": token,
+                "token_type": "bearer",
+                "user_id": new_user.id
+            }

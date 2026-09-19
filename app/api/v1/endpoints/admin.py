@@ -10,10 +10,12 @@ from app.database.session import get_db
 from app.models import User, Media, ExcursionMediaLink
 from app.models.excursion import Excursion, ExcursionStatus
 from app.models.media import MediaType
-from app.schemas.excursion import ExcursionResponse, ExcursionCreate, ExcursionRead
-from app.core.deps import get_current_admin, get_excursion_service
+from app.schemas.category import CategoryRead, CategoryCreate
+from app.schemas.excursion import ExcursionResponse, ExcursionCreate, ExcursionRead, ExcursionUpdate
+from app.core.deps import get_current_admin, get_excursion_service, get_category_service
 from app.schemas.media import LinkMediaRequest
 from app.schemas.point import PointCreate
+from app.services.CategoryService import CategoryService
 from app.services.ExcursionService import ExcursionService
 from app.services.FileService import FileService
 
@@ -110,8 +112,27 @@ async def add_point_to_excursion(
     service: ExcursionService = Depends(get_excursion_service),
     current_admin: User = Depends(get_current_admin)
 ):
-    # Передаем Pydantic-схему напрямую в сервис, как он и ожидает
     return await service.add_point_to_excursion(payload)
+
+
+@admin_router.put("/excursions/points/{point_id}", status_code=status.HTTP_200_OK)
+async def update_point(
+    point_id: int,
+    payload: PointCreate,
+    service: ExcursionService = Depends(get_excursion_service),
+    current_admin: User = Depends(get_current_admin)
+):
+    return await service.update_point_in_excursion(point_id=point_id, point_data=payload)
+
+
+@admin_router.delete("/excursions/points/{point_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_point(
+    point_id: int,
+    service: ExcursionService = Depends(get_excursion_service),
+    current_admin: User = Depends(get_current_admin)
+):
+    await service.delete_point_from_excursion(point_id=point_id)
+    return None
 
 
 @admin_router.delete("/excursions/{excursion_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -153,9 +174,35 @@ async def publish_excursion(
 @admin_router.put("/excursions/{excursion_id}", response_model=ExcursionResponse)
 async def update_excursion(
     excursion_id: int,
-    payload: ExcursionCreate, # или создай отдельную схему ExcursionUpdate
+    payload: ExcursionUpdate,
     service: ExcursionService = Depends(get_excursion_service),
     current_admin: User = Depends(get_current_admin)
 ):
     # Метод в сервисе должен обновить поля title, description, category_id
     return await service.update_excursion(excursion_id=excursion_id, excursion_in=payload)
+
+
+
+@admin_router.get("/categories", response_model=List[CategoryRead])
+async def get_list_categories(
+        category_service: CategoryService = Depends(get_category_service),
+) -> List[CategoryRead]:
+    return await category_service.get_list()
+
+
+
+@admin_router.post("/categories", response_model=CategoryRead, status_code=201)
+async def create_category(
+    category_in: CategoryCreate,
+    category_service: CategoryService = Depends(get_category_service),
+    current_admin: User = Depends(get_current_admin)
+):
+    return await category_service.create(category_in)
+
+@admin_router.delete("/{category_id}", status_code=204)
+async def delete_category(
+    category_id: int,
+    category_service: CategoryService = Depends(get_category_service),
+    current_admin: User = Depends(get_current_admin)
+):
+    await category_service.delete(category_id)

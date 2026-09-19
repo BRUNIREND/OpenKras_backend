@@ -52,13 +52,13 @@ class LoginRequest(BaseModel):
     email: EmailStr = Field(
         ...,
         description="Электронная почта пользователя для отправки OTP",
-        examples=["example@ex.com"]
+        examples=["yaroslav.losev.2014@mail.ru"]
     )
     password: str = Field(
         ...,
         min_length=6,
         description="Пароль для аккаунта",
-        examples=["Super_secret_pass123"]
+        examples=["Abcd26837"]
     )
 
 # 4. Ответ с токенами

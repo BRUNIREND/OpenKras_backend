@@ -5,7 +5,7 @@ from sqlalchemy import select, delete, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Excursion, Point, PointContent, User
-from app.models.assocations import user_favorite_excursions
+from app.models.assocations import user_favorite_excursions, user_completed_excursions
 from app.models.excursion import ExcursionStatus
 from app.repositories.base import CRUDBase
 from app.schemas.excursion import ExcursionCreate2, ExcursionUpdate, ExcursionCreate
@@ -41,6 +41,14 @@ class ExcursionRepository(CRUDBase[Excursion, ExcursionCreate2, ExcursionUpdate]
         fav_query = select(user_favorite_excursions.c.excursion_id).where(
             user_favorite_excursions.c.user_id == current_user_id
         )
+        completed_excursion_query = select(user_completed_excursions.c.excursion_id).where(
+            user_completed_excursions.c.user_id == current_user_id
+        )
+
+        completed_excursion_result = await db.execute(completed_excursion_query)
+        completed_excursion_ids = set(completed_excursion_result.scalars().all())
+
+
         fav_result = await db.execute(fav_query)
         favorite_ids = set(fav_result.scalars().all())
 
@@ -57,8 +65,8 @@ class ExcursionRepository(CRUDBase[Excursion, ExcursionCreate2, ExcursionUpdate]
         excursions = result.scalars().all()
         # 3. Проставляем флаги
         for excursion in excursions:
-            print(excursion.images)
             excursion.is_favorite = excursion.id in favorite_ids
+            excursion.is_completed = excursion.id in completed_excursion_ids
 
         return excursions
 
@@ -158,6 +166,37 @@ class ExcursionRepository(CRUDBase[Excursion, ExcursionCreate2, ExcursionUpdate]
             await db.rollback()
             return False
 
+    async def add_to_completed_excursion(self, db: AsyncSession, user_id: int, excursion_id: int) -> bool:
+        """Добавить экскурсию в избранное. Возвращает True в случае успеха"""
+        """
+            Добавить экскурсию в список пройденных. 
+            Возвращает True в случае успешного добавления или если она уже была пройдена.
+            """
+        try:
+            # 1. Проверяем, существует ли уже такая запись
+            check_query = select(user_completed_excursions).where(
+                user_completed_excursions.c.user_id == user_id,
+                user_completed_excursions.c.excursion_id == excursion_id
+            )
+            result = await db.execute(check_query)
+
+            # Если запись нашлась, не плодим дубли и не падаем — просто возвращаем True
+            if result.first() is not None:
+                return True
+
+            # 2. Если записи нет, выполняем вставку
+            stmt = insert(user_completed_excursions).values(
+                user_id=user_id,
+                excursion_id=excursion_id
+            )
+            await db.execute(stmt)
+            await db.commit()
+            return True
+
+        except Exception:
+            await db.rollback()
+            return False
+
     async def remove_from_favorites(self, db: AsyncSession, user_id: int, excursion_id: int) -> bool:
         """Удалить экскурсию из избранного. Возвращает True в случае успеха"""
         try:
@@ -177,20 +216,16 @@ class ExcursionRepository(CRUDBase[Excursion, ExcursionCreate2, ExcursionUpdate]
         Запрашивает из БД экскурсии, привязанные к ID пользователя в таблице избранного.
         """
 
-        # ВАРИАНТ А: Если связь сделана через классическую промежуточную таблицу (Table)
         query = (
             select(Excursion)
             .join(user_favorite_excursions, Excursion.id == user_favorite_excursions.c.excursion_id)
             .where(user_favorite_excursions.c.user_id == user_id)
-            .options(selectinload(Excursion.images))  # Ленивая загрузка картинок-превью
+            .options(selectinload(Excursion.images))
         )
-        # Выполняем запрос через сессию, сохраненную в конструкторе (self.db или self.session)
         result = await db.execute(query)
         excursions = result.scalars().all()
 
-        # БИЗНЕС-ПРАВИЛО: Так как это эндпоинт ИЗБРАННОГО,
-        # мы принудительно проставляем флаг в True для каждой сущности.
-        # Это гарантирует, что Pydantic-схема ExcursionShortRead отдаст "is_favorite": true на фронтенд.
+
         for excursion in excursions:
             excursion.is_favorite = True
 

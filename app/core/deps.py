@@ -1,5 +1,5 @@
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, HTTPAuthorizationCredentials, HTTPBearer
 from jose import jwt, JWTError
 from redis import Redis
 from sqlalchemy import select
@@ -30,14 +30,15 @@ async def get_user_service(db: AsyncSession = Depends(get_db)) -> UserService:
 async def get_excursion_service(db: AsyncSession = Depends(get_db)) -> ExcursionService:
     return ExcursionService(db)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-
+# oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = HTTPBearer()
 
 async def get_current_user(
-        token: str = Depends(oauth2_scheme),
+        token: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
         db: AsyncSession = Depends(get_db),
         user_service: UserService = Depends(get_user_service)
 ) -> User:
+    token = token.credentials
     print(f"Пришедший токен: {token}")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

@@ -10,7 +10,7 @@ from app.repositories.excursion import  excursion_repo
 from fastapi import HTTPException
 
 from app.repositories.point import point_repo
-from app.schemas.excursion import ExcursionCreate
+from app.schemas.excursion import ExcursionCreate, ExcursionUpdate
 from app.schemas.point import PointCreate
 
 
@@ -69,6 +69,7 @@ class ExcursionService:
 
         return excursion
 
+
     async def get_all_detail_excursion_by_id(self, excursion_id: int ):
         excursion = await excursion_repo.get_with_points_one(self.db, excursion_id)
         if not excursion:
@@ -105,6 +106,60 @@ class ExcursionService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Не удалось сохранить точку маршрута и связать её с медиа-файлами."
+            )
+
+    async def update_point_in_excursion(self, point_id: int, point_data: PointCreate) -> Point:
+        """
+        Бизнес-логика обновления параметров точки, её мультиязычного контента и медиа.
+        """
+        # Проверяем, существует ли целевая экскурсия
+        excursion_exists = await excursion_repo.exists(self.db, id=point_data.excursion_id)
+        if not excursion_exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Экскурсия с ID {point_data.excursion_id} не найдена."
+            )
+
+        try:
+            updated_point = await point_repo.update_with_contents_and_media(
+                db=self.db,
+                point_id=point_id,
+                point_schema=point_data
+            )
+            if not updated_point:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Точка маршрута с ID {point_id} не найдена."
+                )
+            return updated_point
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Не удалось обновить точку маршрута и перезаписать её медиа-структуру."
+            )
+
+    async def delete_point_from_excursion(self, point_id: int):
+        """
+        Бизнес-логика полного удаления точки.
+        """
+        try:
+            success = await point_repo.delete_point_completely(self.db, point_id=point_id)
+            if not success:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Точка с ID {point_id} не найдена."
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            await self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Ошибка сервера при попытке удалить точку маршрута."
             )
 
     async def delete_excursion(self, excursion_id: int):
@@ -146,7 +201,7 @@ class ExcursionService:
 
         return await excursion_repo.get_all_raw(self.db, skip=skip, limit=limit)
 
-    async def update_excursion(self, excursion_id: int, excursion_in: ExcursionCreate) -> Excursion:
+    async def update_excursion(self, excursion_id: int, excursion_in: ExcursionUpdate) -> Excursion:
         # Вызываем метод обновления у репозитория
         updated_excursion = await excursion_repo.update(
             self.db,
@@ -176,6 +231,20 @@ class ExcursionService:
             user_id=user_id,
             excursion_id=excursion_id
         )
+
+    async def complete_excursion(self, user_id: int, excursion_id: int) -> bool:
+
+        excursion_exists = await excursion_repo.get(self.db, id=excursion_id)
+        if not excursion_exists:
+            return False
+
+        # 2. Перенаправляем запрос в репозиторий для выполнения записи в БД
+        return await excursion_repo.add_to_completed_excursion(
+            db=self.db,
+            user_id=user_id,
+            excursion_id=excursion_id
+        )
+
 
     async def remove_from_favorites(self, user_id: int, excursion_id: int) -> bool:
         """Бизнес-логика удаления из избранного"""
